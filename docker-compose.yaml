@@ -3,7 +3,7 @@ version: '3'
 services:
   bot:
     build: ./bot
-    container_name: bot_image1
+    container_name: bot_image
     restart: unless-stopped
     environment:
       TOKEN: ${TOKEN}
@@ -21,7 +21,7 @@ services:
         - db
   db:
     build: ./db
-    container_name: db_image1
+    container_name: db_image
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_DATABASE}
@@ -59,7 +59,7 @@ services:
       - shared-volume:/var/log/postgresql/
   db_repl:
     build: ./db_repl
-    container_name: db_repl_image1
+    container_name: db_repl_image
     restart: unless-stopped
     depends_on:
       - db
