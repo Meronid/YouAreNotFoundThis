@@ -116,7 +116,7 @@ def find_phone_number (update: Update, context):
     else:
         phonenumbers=(findReg(r'[\+\(]?[1-9][0-9 .\-\(\)]{8,}[0-9]',user_input))
         update.message.reply_text(list_to_str(phonenumbers)) # Отправляем сообщение пользователю
-        update.message.reply_text('Записать данные в базу данных?')
+        update.message.reply_text('Записать данные в базу данных? Варианты: Да/Нет')
     return 'insert_phonenumber' # Отправляем сообщение пользователю
 
 def get_emails(update: Update, context):
@@ -152,7 +152,7 @@ def find_email (update: Update, context):
     else:
         emails=findReg(r'(?:[A-Za-z0-9]+[.-_])*[A-Za-z0-9]+@[A-Za-z0-9-]+(?:\.[A-Z|a-z]{2,})+',user_input)
         update.message.reply_text(list_to_str(emails))
-        update.message.reply_text('Записать данные в базу данных?')
+        update.message.reply_text('Записать данные в базу данных? Варианты: Да/Нет')
     return 'insert_email' # Отправляем сообщение пользователю
 
 def verify_password_Command(update: Update, context):
