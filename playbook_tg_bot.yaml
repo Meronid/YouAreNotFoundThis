@@ -1,8 +1,8 @@
 - name: Set up bot
   hosts: all    # playbook запустится для всех хостов в inventory.
   become: yes   # команда позволяет ansible использовать права root.
-  vars:
-  - env.yml
+  vars_files:
+    - env.yml
   tasks:        # ниже начинается список задач. Обратите внимание, tasks во множественном числе. Иначе получим ошибку при выполнении плейбука
 
 
@@ -12,18 +12,12 @@
 
   - name: Install packages
     ansible.builtin.apt:
-      name: ['python3', 'postgresql']
+      name: ['python3', 'postgresql', 'libpq-dev']
       state: present
-
-  - name: Pip install requirements
-    ansible.builtin.pip:
-      requirements: /temp/docker/bot_image/requirements.txt
-      extra_args: "--break-system-packages"
-    delegate_to: host01
 
   - name: Check if GitHub repository is already cloned
     ansible.builtin.stat:
-      path: /temp/docker
+      path: /temp/docker/
     register: repo_status
     delegate_to: host01
 
@@ -33,6 +27,11 @@
       dest: '/temp/docker'
       version: docker
     when: not repo_status.stat.exists
+    delegate_to: host01
+
+  - name: Pip install requirements
+    pip:
+      requirements: /temp/docker/bot_image/requirements.txt
     delegate_to: host01
 
   - name: Stop db
@@ -65,6 +64,8 @@
        mkdir -p /oracle
        mkdir -p /oracle/pg_data
        mkdir -p /oracle/pg_data/archive
+       chown "{{ RM_USER }}" /temp/db_logs/
+       chmod 0777 /temp/db_logs/
        chown "{{ DB_USER }}" /oracle/pg_data/archive
     delegate_to: host01
 
@@ -82,33 +83,35 @@
     delegate_to: host01
 
   - name: Set password for the default PostgreSQL user
-    command: psql -c "ALTER USER postgres WITH PASSWORD '{{ DB_PASSWORD }}';"
+    command: psql -c "ALTER USER {{DB_USER}} WITH PASSWORD '{{ DB_PASSWORD }}';"
     become_user: "{{ DB_USER }}"
     delegate_to: host01
 
-  - name: "table_phone_numbers"
-      become: yes
-      become_user: postgres
-      postgresql_table:
-        table: "phonenumbers"
-        db: "{{ DB_DATABASE }}"
-        columns:
-        - phonenumber_id SERIAL PRIMARY KEY
-        - phonenumber VARCHAR(255) NOT NULL
-      delegate_to: host01
-  - name: "table_emails"
-      become: yes
-      become_user: postgres
-      postgresql_table:
-        table: "emails"
-        db: "{{ DB_DATABASE }}"
-        columns:
-        - email_id SERIAL PRIMARY KEY
-        - email VARCHAR(255) NOT NULL
-      delegate_to: host01
   - name: "repl_user"
-      shell: sudo -u postgres psql -c "CREATE USER {{ DB_REPL_USER }} REPLICATION LOGIN ENCRYPTED PASSWORD '{{ DB_REPL_PASSWORD }}';"
-      ignore_errors: true 
+    command: sudo -u {{DB_USER}} psql -c "CREATE USER {{ DB_REPL_USER }} REPLICATION LOGIN ENCRYPTED PASSWORD '{{DB_REPL_PASSWORD}}';"
+    ignore_errors: true
+    delegate_to: host01
+
+  - name: "table_phone_numbers"
+    become: yes
+    become_user: postgres
+    postgresql_table:
+      table: "phonenumbers"
+      db: "{{ DB_DATABASE }}"
+      columns:
+      - phonenumber_id SERIAL PRIMARY KEY
+      - phonenumber VARCHAR(255) NOT NULL
+    delegate_to: host01
+  - name: "table_emails"
+    become: yes
+    become_user: postgres
+    postgresql_table:
+      table: "emails"
+      db: "{{ DB_DATABASE }}"
+      columns:
+      - email_id SERIAL PRIMARY KEY
+      - email VARCHAR(255) NOT NULL
+    delegate_to: host01
 
   - name: Stop SLAVE_DB
     ansible.builtin.systemd:
@@ -119,15 +122,17 @@
   - name: Clear SLAVE_DB
     become_user: root
     ansible.builtin.shell: |
-       rm -rf /var/lib/postgresql/14/main/
-       mkdir /var/lib/postgresql/14/main/
+       rm -rf /var/lib/postgresql/14/main
+       mkdir /var/lib/postgresql/14/main
        chown postgres:postgres /var/lib/postgresql/14/main
     delegate_to: host02
 
   - name: Replicate DB
     become_user: root
-    ansible.builtin.command: pg_basebackup -R -D /var/lib/postgresql/14/main/ -P -h 192.168.137.136 -U {{DB_REPL_USER}}
+    ansible.builtin.command: pg_basebackup -D /var/lib/postgresql/14/main/ -h {{DB_HOST}} -p 5432 -U {{DB_REPL_USER}} -vP -w
     delegate_to: host02
+    environment:
+      PGPASSWORD: "{{DB_REPL_PASSWORD}}"
 
   - name: Start SLAVE_DB
     ansible.builtin.systemd:
@@ -135,31 +140,20 @@
       state: started
     delegate_to: host02
 
-  - name: Create bot systemd unit file
-    ansible.builtin.shell: |
-      touch /etc/systemd/system/bot.service
-      chmod 0640 /etc/systemd/system/bot.service
-      echo "[Unit]\nDescription=ansible\nAfter=network.target\n[Service]\nUser=root\nWorkingDirectory=/\nExecStart=/usr/bin/python3 /temp/docker/bot_image/bot.py\nRestart=always\nEnvironment='PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'\n[Install]\nWantedBy=multi-user.target" > /etc/systemd/system/bot.service
-    delegate_to: host01
-
-  - name: Reload systemd to recognize the new service
-    ansible.builtin.systemd:
-      daemon_reload: yes
-    delegate_to: host01
-
   - name: Start bot
-    ansible.builtin.systemd:
-      name: bot
-      state: started
-      environment:
-        TOKEN: "{{TOKEN }}"
-        RM_PORT: "{{ RM_PORT }}"
-        RM_HOST: "{{ RM_HOST}}"
-        RM_USER: "{{ RM_USER}}"
-        RM_PASSWORD: "{{RM_PASSWORD}}"
-        DB_PORT: "{{ DB_PORT}}"
-        DB_HOST: "{{ DB_HOST}}"
-        DB_NAME: "{{ DB_DATABASE}}"
-        DB_PASSWORD: "{{ DB_PASSWORD}}"
-        DB_USER: "{{ DB_USER}}"
+    ansible.builtin.debug:
+      msg: "bot on"
+  - name: bot_up
+    environment:
+      TOKEN: "{{TOKEN }}"
+      RM_HOST: "{{ RM_HOST }}"
+      RM_PORT: "{{RM_PORT}}"
+      RM_USER: "{{RM_USER}}"
+      RM_PASSWORD: "{{RM_PASSWORD}}"
+      DB_USER: "{{DB_USER}}"
+      DB_PASSWORD: "{{DB_PASSWORD}}"
+      DB_HOST: "{{DB_HOST}}"
+      DB_PORT: "{{DB_PORT}}"
+      DB_DATABASE: "{{DB_DATABASE}}"
+    command: python3 /temp/docker/bot_image/bot.py
     delegate_to: host01
