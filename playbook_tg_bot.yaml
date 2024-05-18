@@ -12,7 +12,7 @@
 
   - name: Install packages
     ansible.builtin.apt:
-      name: ['python3', 'postgresql', 'libpq-dev']
+      name: ['python3', 'postgresql', 'libpq-dev', 'git']
       state: present
 
   - name: Check if GitHub repository is already cloned
